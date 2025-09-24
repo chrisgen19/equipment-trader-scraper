@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Download, Play, AlertCircle, CheckCircle, Loader, Clock, Target, Activity } from 'lucide-react';
 
 // API URL - Python Flask backend
-const API_BASE_URL = 'http://localhost:5001';
+//const API_BASE_URL = 'http://localhost:5001';
+const API_BASE_URL = 'http://10.53.48.141:5001';
 
 const ProgressBar = ({ percentage, className = "" }) => (
   <div className={`w-full bg-gray-200 rounded-full h-3 ${className}`}>
@@ -34,6 +35,7 @@ const StatusBadge = ({ status }) => {
 
 const EquipmentTraderScraper = () => {
   const [url, setUrl] = useState('https://www.equipmenttrader.com/Articulated-Boom-Lift/equipment-for-sale?category=Articulated%20Boom%20Lift%7C2011372');
+  const [maxPages, setMaxPages] = useState(5);
   const [isLoading, setIsLoading] = useState(false);
   const [scrapedData, setScrapedData] = useState([]);
   const [status, setStatus] = useState('');
@@ -47,6 +49,11 @@ const EquipmentTraderScraper = () => {
   const [completedItems, setCompletedItems] = useState(0);
   const [successfulItems, setSuccessfulItems] = useState(0);
   const [recentItems, setRecentItems] = useState([]);
+  
+  // Pagination tracking states
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(0);
+  const [pagesScraped, setPagesScraped] = useState(0);
   
   const eventSourceRef = useRef(null);
   const sessionIdRef = useRef(null);
@@ -97,9 +104,30 @@ const EquipmentTraderScraper = () => {
         setStatus(`📋 ${data.data.message}`);
         break;
 
+      case 'pagination':
+        setCurrentPage(data.data.current_page || 1);
+        if (data.data.max_pages) {
+          setTotalPages(data.data.max_pages);
+        }
+        // Show URL being loaded for transparency
+        if (data.data.url) {
+          setStatus(`🌐 ${data.data.message} (${data.data.url})`);
+        } else if (data.data.message.includes('No results found')) {
+          setStatus(`🏁 ${data.data.message}`);
+        } else {
+          setStatus(`📄 ${data.data.message}`);
+        }
+        break;
+
+      case 'page_scraped':
+        setPagesScraped(data.data.current_page);
+        setStatus(`📄 ${data.data.message} (Total: ${data.data.total_listings_so_far})`);
+        break;
+
       case 'urls_found':
         setTotalItems(data.data.total_urls);
-        setStatus(`🎯 Found ${data.data.total_urls} listings to scrape`);
+        setPagesScraped(data.data.pages_scraped || 1);
+        setStatus(`🎯 Found ${data.data.total_urls} listings across ${data.data.pages_scraped} pages`);
         break;
 
       case 'scraping_item':
@@ -206,6 +234,9 @@ const EquipmentTraderScraper = () => {
     setSuccessfulItems(0);
     setRecentItems([]);
     setScrapedData([]);
+    setCurrentPage(1);
+    setTotalPages(0);
+    setPagesScraped(0);
   };
 
   const handleScrape = async () => {
@@ -250,7 +281,7 @@ const EquipmentTraderScraper = () => {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ url, session_id: sessionId }),
+        body: JSON.stringify({ url, session_id: sessionId, max_pages: maxPages }),
       });
 
       if (!response.ok) {
@@ -345,7 +376,20 @@ Backend Setup Instructions:
 5. Start the backend:
    python app.py
 
-6. Backend will run on http://localhost:5001 with SSE support
+6. Backend will run on http://localhost:5001 with:
+   - SSE support for real-time progress
+   - Automatic pagination handling
+   - Configurable max pages (default: 10)
+
+Features:
+✅ Automatic URL-based pagination (e.g., &page=2, &page=3)
+✅ Real-time progress updates  
+✅ Individual item status tracking
+✅ Error handling and retry logic
+✅ CSV export functionality
+✅ Popup/modal dismissal
+✅ No button clicking required - direct URL navigation
+✅ Faster and more reliable than click-based pagination
   `;
 
   return (
@@ -361,7 +405,7 @@ Backend Setup Instructions:
             <label htmlFor="url" className="block text-sm font-medium text-gray-700 mb-2">
               Equipment Trader Search URL
             </label>
-            <div className="flex gap-3">
+            <div className="flex gap-3 mb-3">
               <input
                 type="url"
                 id="url"
@@ -371,6 +415,21 @@ Backend Setup Instructions:
                 className="flex-1 px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 disabled={isLoading}
               />
+              <div className="flex items-center gap-2">
+                <label htmlFor="maxPages" className="text-sm font-medium text-gray-700 whitespace-nowrap">
+                  Max Pages:
+                </label>
+                <input
+                  type="number"
+                  id="maxPages"
+                  value={maxPages}
+                  onChange={(e) => setMaxPages(Math.max(1, parseInt(e.target.value) || 1))}
+                  min="1"
+                  max="50"
+                  className="w-20 px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  disabled={isLoading}
+                />
+              </div>
               <button
                 onClick={handleScrape}
                 disabled={isLoading || !url.trim()}
@@ -380,6 +439,13 @@ Backend Setup Instructions:
                 {isLoading ? 'Scraping...' : 'Start Scrape'}
               </button>
             </div>
+            <p className="text-sm text-gray-500">
+              The scraper will automatically go through all pages up to the maximum specified, collecting all listings.
+              <br />
+              <span className="text-xs text-blue-600">
+                ✨ Enhanced: Uses URL-based pagination (e.g., &page=2) for reliable navigation - no clicking required!
+              </span>
+            </p>
           </div>
 
           {/* Progress Section */}
@@ -399,6 +465,20 @@ Backend Setup Instructions:
                   <span>{Math.round(progress)}%</span>
                 </div>
                 <ProgressBar percentage={progress} />
+                
+                {/* Pagination Progress */}
+                {totalPages > 1 && (
+                  <div className="mt-3">
+                    <div className="flex justify-between text-sm text-gray-600 mb-1">
+                      <span>Page Progress</span>
+                      <span>{currentPage} / {totalPages || maxPages}</span>
+                    </div>
+                    <ProgressBar 
+                      percentage={totalPages > 0 ? (currentPage / totalPages) * 100 : (currentPage / maxPages) * 100} 
+                      className="h-2"
+                    />
+                  </div>
+                )}
               </div>
 
               {/* Current Phase */}
@@ -446,7 +526,11 @@ Backend Setup Instructions:
               )}
 
               {/* Statistics */}
-              <div className="grid grid-cols-3 gap-4 mb-4">
+              <div className="grid grid-cols-4 gap-4 mb-4">
+                <div className="text-center p-3 bg-white rounded-md border border-blue-200">
+                  <div className="text-2xl font-bold text-purple-600">{pagesScraped}</div>
+                  <div className="text-sm text-gray-600">Pages Scraped</div>
+                </div>
                 <div className="text-center p-3 bg-white rounded-md border border-blue-200">
                   <div className="text-2xl font-bold text-blue-600">{totalItems}</div>
                   <div className="text-sm text-gray-600">Total Found</div>
