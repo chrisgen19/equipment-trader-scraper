@@ -574,19 +574,25 @@ Features:
                 </div>
               </div>
 
-              {/* Start New Scrape button when complete */}
-              {scrapingComplete && !isLoading && (
+              {/* Download CSV button when complete and has data */}
+              {scrapingComplete && !isLoading && scrapedData.length > 0 && (
                 <div className="mb-4 text-center">
                   <button
-                    onClick={() => {
-                      resetState();
-                      setStatus('');
-                    }}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2 mx-auto"
+                    onClick={handleDownload}
+                    className="px-6 py-3 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center gap-2 mx-auto text-lg font-medium"
                   >
-                    <Play className="w-4 h-4" />
-                    Start New Scrape
+                    <Download className="w-5 h-5" />
+                    Download CSV ({scrapedData.length} items)
                   </button>
+                </div>
+              )}
+
+              {/* Show message if scraping complete but no data */}
+              {scrapingComplete && !isLoading && scrapedData.length === 0 && (
+                <div className="mb-4 text-center p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+                  <p className="text-yellow-800 text-sm">
+                    No data was scraped. Try adjusting your search URL or check if the website structure has changed.
+                  </p>
                 </div>
               )}
             </div>
