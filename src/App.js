@@ -2,8 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Download, Play, AlertCircle, CheckCircle, Loader, Clock, Target, Activity } from 'lucide-react';
 
 // API URL - Python Flask backend
-//const API_BASE_URL = 'http://localhost:5001';
-const API_BASE_URL = 'http://10.53.48.141:5001';
+const API_BASE_URL = 'http://localhost:5001';
 
 const ProgressBar = ({ percentage, className = "" }) => (
   <div className={`w-full bg-gray-200 rounded-full h-3 ${className}`}>
@@ -54,6 +53,10 @@ const EquipmentTraderScraper = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
   const [pagesScraped, setPagesScraped] = useState(0);
+  
+  // Track if scraping has been attempted (to show progress box even on errors)
+  const [scrapingAttempted, setScrapingAttempted] = useState(false);
+  const [scrapingComplete, setScrapingComplete] = useState(false);
   
   const eventSourceRef = useRef(null);
   const sessionIdRef = useRef(null);
@@ -111,7 +114,11 @@ const EquipmentTraderScraper = () => {
         }
         // Show URL being loaded for transparency
         if (data.data.url) {
-          setStatus(`🌐 ${data.data.message} (${data.data.url})`);
+          if (data.data.starting_page && data.data.starting_page > 1) {
+            setStatus(`🌐 ${data.data.message} (starting from page ${data.data.starting_page})`);
+          } else {
+            setStatus(`🌐 ${data.data.message}`);
+          }
         } else if (data.data.message.includes('No results found')) {
           setStatus(`🏁 ${data.data.message}`);
         } else {
@@ -127,7 +134,11 @@ const EquipmentTraderScraper = () => {
       case 'urls_found':
         setTotalItems(data.data.total_urls);
         setPagesScraped(data.data.pages_scraped || 1);
-        setStatus(`🎯 Found ${data.data.total_urls} listings across ${data.data.pages_scraped} pages`);
+        if (data.data.starting_page && data.data.ending_page) {
+          setStatus(`🎯 Found ${data.data.total_urls} listings from pages ${data.data.starting_page}-${data.data.ending_page}`);
+        } else {
+          setStatus(`🎯 Found ${data.data.total_urls} listings across ${data.data.pages_scraped} pages`);
+        }
         break;
 
       case 'scraping_item':
@@ -169,6 +180,7 @@ const EquipmentTraderScraper = () => {
 
       case 'completed':
         setIsLoading(false);
+        setScrapingComplete(true);
         setProgress(100);
         setStatus(`✅ Scraping completed! Successfully scraped ${data.data.total_scraped} out of ${data.data.total_processed} listings.`);
         if (eventSourceRef.current) {
@@ -178,6 +190,7 @@ const EquipmentTraderScraper = () => {
 
       case 'error':
         setIsLoading(false);
+        setScrapingComplete(true);
         setStatus(`❌ Error: ${data.data.message || data.data.error}`);
         if (eventSourceRef.current) {
           eventSourceRef.current.close();
@@ -237,6 +250,8 @@ const EquipmentTraderScraper = () => {
     setCurrentPage(1);
     setTotalPages(0);
     setPagesScraped(0);
+    setScrapingAttempted(false);
+    setScrapingComplete(false);
   };
 
   const handleScrape = async () => {
@@ -247,6 +262,7 @@ const EquipmentTraderScraper = () => {
 
     resetState();
     setIsLoading(true);
+    setScrapingAttempted(true); // Mark that scraping has been attempted
     setStatus('🚀 Starting scrape...');
 
     try {
@@ -300,6 +316,7 @@ const EquipmentTraderScraper = () => {
     } catch (error) {
       console.error('Full error details:', error);
       setIsLoading(false);
+      setScrapingComplete(true); // Mark as complete so progress box stays visible
       
       // If backend is not running, use mock data for demo
       if (error.message.includes('fetch') || error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
@@ -345,6 +362,7 @@ const EquipmentTraderScraper = () => {
             { ...mockData[0], status: 'completed', timestamp: Date.now() - 1000 }
           ]);
           setStatus('✅ Demo data loaded successfully!');
+          setScrapingComplete(true);
         }, 2000);
       } else {
         setStatus(`❌ Error: ${error.message}`);
@@ -382,7 +400,8 @@ Backend Setup Instructions:
    - Configurable max pages (default: 10)
 
 Features:
-✅ Automatic URL-based pagination (e.g., &page=2, &page=3)
+✅ Smart URL-based pagination (handles existing &page= parameters)
+✅ Start from any page (e.g., URL with &page=5 and max_pages=3 → scrapes pages 5,6,7)
 ✅ Real-time progress updates  
 ✅ Individual item status tracking
 ✅ Error handling and retry logic
@@ -444,15 +463,25 @@ Features:
               <br />
               <span className="text-xs text-blue-600">
                 ✨ Enhanced: Uses URL-based pagination (e.g., &page=2) for reliable navigation - no clicking required!
+                <br />
+                💡 Tip: You can start from any page by adding &page=X to your URL, and it will increment from there.
               </span>
             </p>
           </div>
 
           {/* Progress Section */}
-          {isLoading && (
-            <div className="mb-6 bg-gradient-to-r from-blue-50 to-indigo-50 p-6 rounded-lg border border-blue-200">
+          {(isLoading || scrapingAttempted) && (
+            <div className={`mb-6 p-6 rounded-lg border ${
+              scrapingComplete && !isLoading 
+                ? status.includes('✅') 
+                  ? 'bg-gradient-to-r from-green-50 to-emerald-50 border-green-200'
+                  : 'bg-gradient-to-r from-red-50 to-pink-50 border-red-200'
+                : 'bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200'
+            }`}>
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-800">Scraping Progress</h3>
+                <h3 className="text-lg font-semibold text-gray-800">
+                  {isLoading ? 'Scraping Progress' : scrapingComplete ? 'Scraping Complete' : 'Scraping Status'}
+                </h3>
                 <div className="text-sm text-gray-600">
                   {completedItems}/{totalItems} items processed
                 </div>
@@ -544,6 +573,22 @@ Features:
                   <div className="text-sm text-gray-600">Failed</div>
                 </div>
               </div>
+
+              {/* Start New Scrape button when complete */}
+              {scrapingComplete && !isLoading && (
+                <div className="mb-4 text-center">
+                  <button
+                    onClick={() => {
+                      resetState();
+                      setStatus('');
+                    }}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2 mx-auto"
+                  >
+                    <Play className="w-4 h-4" />
+                    Start New Scrape
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
